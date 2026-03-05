@@ -1,0 +1,118 @@
+Nombre: webPedido con el objetivo de realizar pedido
+
+Nombre frontend: webPedidoFrontend
+Nombre backend: webPedidoBackend
+
+Restriccion: Utilizar la filosofia suckless.org (simple y funcional) 
+
+Detalle frontend:
+- Utilizar reactjs, vite y JSX 
+
+Detalle backend:
+- dotnet 10 ( se puede usar notnet 8 si la 10 aun no es estable)
+- base de datos posgressql 18
+   - ya exite la db wePedido en localhost
+   - usuario usrWebPedido
+   - password MiWebPedido
+   - en archivo ventaWebPostgesql.txt es la definicion de las tablas y sp.
+
+
+==Vista login==
+
+Login
+
+correo:
+password:
+
+[OK]
+
+
+==Vista comprar==
+
+Bienvenido
+
+Producto:[ ]
+[Buscar] [Ver Carrito]
+
+
+Grid de productos encontrado
+No,Producto, Descripcion, Precio, Accion(donde mostrar un boton para agregar y un input para indicar la cantidad)
+
+
+==Vista Carrito==
+
+Carrito de compras
+No, Producto, Descripcion, Precion, Cantidad, Accion (permitir borrar, editar)
+
+[Comprar]
+
+==Vista de Producto==
+
+Productos
+
+[Agregar]
+
+Grid de productos con los datos
+No, Producto,descripcion, existencia, precio, Accion(permitir borrar, editar)
+
+
+El boton agregar en abre un dialogo en modo modal para crear un producto
+Producto:
+Descripcion:
+Existencia:
+Precio:
+[OK]
+
+
+==Vista de Cliente==
+
+Clientes
+
+[Agregar]
+
+Grid de productos con los datos
+No, nombre, correo, password, isAdmin
+
+
+El boton agregar en abre un dialogo en modo modal para crear un producto
+Nombre:
+Correo:
+Password:
+IsAdmin:
+[OK]
+
+==Vista de admin de pedidos ==
+
+Pedidos
+
+Mostrar un grid con
+idPedido,nombreCliente,fecha,total,estatus, accion (que permita ver, borrar)
+
+Al dar clic en ver en pedido mostrar Detalle de pedido en modal
+
+Pedido
+Cliente:
+Fecha:
+Total:
+Estatus
+
+Grid de productos con los datos
+No, Producto, Descripcion, Precion, Cantidad, Accion (permitir borrar, editar)
+
+
+Resume de vista:
+Vista login. Acceso publico. 
+Vista comprar. Acceso privado solo para cliente autentificado.
+Vista Carrito. Acceso privado solo para cliente autentificado, solo mostrar la compras del cliente. 
+Vista de Producto. Acceso privando solo para usuario admin (isAdmin de tabla dbo.catCliente en 1 ).
+Vista de Cliente. Acceso privando solo para usuario admin (isAdmin de tabla dbo.catCliente en 1 ).
+Vista de admin de pedidos. Acceso privando solo para usuario admin (isAdmin de tabla dbo.catCliente en 1 ).
+
+
+Para la gestion de la base de datos utilizar para todo sp tipo
+dbo.spMtto + nombretabla:
+- como parametros el total campos de la tabla
+- para mas detalle ver el archivo ventaWebPostgesql.txt 
+
+Fix: 
+- la vista de pedido tambien debe tener acceso todo cliente autentificado pero solo mostrar sus pedidos.

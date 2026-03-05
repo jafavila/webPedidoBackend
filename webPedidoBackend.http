@@ -1,0 +1,6 @@
+@webPedidoBackend_HostAddress = http://localhost:5042
+
+GET {{webPedidoBackend_HostAddress}}/weatherforecast/
+Accept: application/json
+
+###

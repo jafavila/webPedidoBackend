@@ -1,0 +1,298 @@
+CREATE DATABASE "webPedido";
+
+-- 2. Crear el ROL (En Postgres, LOGIN y USER son ambos 'ROLES')
+-- 'LOGIN' permite que el usuario pueda iniciar sesión
+CREATE ROLE "usrWebPedido" WITH LOGIN PASSWORD 'MiWebPedido';
+
+-- 3. Conectarse a la base de datos (Equivalente al USE)
+-- En psql se usa \c webPedido o se selecciona en la interfaz de pgAdmin
+\c "webPedido"
+
+-- 4. Otorgar privilegios de dueño (Equivalente a db_owner)
+-- Se asigna la propiedad de la base de datos al usuario
+ALTER DATABASE "webPedido" OWNER TO "usrWebPedido";
+
+-- Adicionalmente, para dar permisos totales sobre el esquema público:
+GRANT ALL PRIVILEGES ON SCHEMA public TO "usrWebPedido";
+
+
+-- SCRIPT COMPLETO PARA POSTGRESQL (TABLAS + PROCEDIMIENTOS)
+-- Nota: Ejecutar en una base de datos nueva o esquema 'public'
+
+-- Habilitar extensión para encriptación MD5
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+-- =============================================
+-- 1. TABLAS
+-- =============================================
+
+CREATE TABLE IF NOT EXISTS catCliente (
+    idCliente INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    nombre VARCHAR(128) NOT NULL,
+    correo VARCHAR(128) NOT NULL UNIQUE, 
+    password VARCHAR(64) NOT NULL,
+    isAdmin BOOLEAN NOT NULL,
+    intento BOOLEAN NOT NULL DEFAULT FALSE,
+    conteo_intentos INT NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS catProducto (
+    idProducto INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY, 
+    producto VARCHAR(64) NOT NULL UNIQUE, 
+    descripcion VARCHAR(128) NOT NULL,
+    existencia INT NOT NULL,
+    precio DECIMAL(18,2) NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS tblPedido (
+    idPedido INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    idCliente INT REFERENCES catCliente(idCliente),
+    fecha TIMESTAMP NOT NULL,
+    total DECIMAL(18,2) NOT NULL,
+    estatus BOOLEAN NOT NULL 
+);
+
+CREATE TABLE IF NOT EXISTS tblPedidoDetalle (
+    idPedidoDetalle INT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    idPedido INT REFERENCES tblPedido(idPedido),
+    idProducto INT REFERENCES catProducto(idProducto),
+    cantidad INT,
+    total DECIMAL(18,2)
+);
+
+-- =============================================
+-- 2. PROCEDIMIENTOS DE MANTENIMIENTO
+-- =============================================
+
+-- Mantenimiento Clientes
+CREATE OR REPLACE PROCEDURE spMttoCatCliente(
+    IN p_idCliente INT DEFAULT NULL,
+    IN p_nombre VARCHAR DEFAULT NULL,
+    IN p_correo VARCHAR DEFAULT NULL,
+    IN p_password VARCHAR DEFAULT NULL,
+    IN p_isAdmin BOOLEAN DEFAULT NULL,
+    IN p_intento BOOLEAN DEFAULT NULL,
+    IN p_accion CHAR(1) DEFAULT NULL
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF p_accion = 'i' THEN
+        INSERT INTO catCliente (nombre, correo, password, isAdmin, intento)
+        VALUES (p_nombre, p_correo, encode(digest(p_password, 'md5'), 'hex'), p_isAdmin, p_intento);
+    ELSIF p_accion = 'u' THEN
+        UPDATE catCliente SET 
+            nombre = COALESCE(p_nombre, nombre),
+            correo = COALESCE(p_correo, correo),
+            password = CASE WHEN p_password IS NOT NULL THEN encode(digest(p_password, 'md5'), 'hex') ELSE password END,
+            isAdmin = COALESCE(p_isAdmin, isAdmin),
+            intento = COALESCE(p_intento, intento)
+        WHERE idCliente = p_idCliente;
+    ELSIF p_accion = 'd' THEN
+        DELETE FROM catCliente WHERE idCliente = p_idCliente;
+    END IF;
+    -- COMMIT ELIMINADO
+EXCEPTION WHEN OTHERS THEN
+    -- ROLLBACK ELIMINADO (Se hace automático al lanzar EXCEPTION)
+    RAISE EXCEPTION 'Error detectado en spMttoCatCliente: %', SQLERRM;
+END; $$;
+
+
+-- Mantenimiento Productos
+
+CREATE OR REPLACE PROCEDURE spMttoCatProducto(
+    IN p_idProducto INT DEFAULT NULL,
+    IN p_producto VARCHAR DEFAULT NULL,
+    IN p_descripcion VARCHAR DEFAULT NULL,
+    IN p_existencia INT DEFAULT NULL,
+    IN p_precio DECIMAL DEFAULT NULL,
+    IN p_accion CHAR(1) DEFAULT NULL
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF p_accion = 'i' THEN
+        INSERT INTO catProducto (producto, descripcion, existencia, precio)
+        VALUES (p_producto, p_descripcion, p_existencia, p_precio);
+    ELSIF p_accion = 'u' THEN
+        UPDATE catProducto SET producto = p_producto, descripcion = p_descripcion, existencia = p_existencia, precio = p_precio
+        WHERE idProducto = p_idProducto;
+    ELSIF p_accion = 'd' THEN
+        DELETE FROM catProducto WHERE idProducto = p_idProducto;
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'Error detectado en spMttoCatProducto: %', SQLERRM;
+END; $$;
+
+
+-- Mantenimiento Pedidos
+CREATE OR REPLACE PROCEDURE spMttoTblPedido(
+    IN p_idPedido INT DEFAULT NULL,
+    IN p_idCliente INT DEFAULT NULL,
+    IN p_fecha TIMESTAMP DEFAULT NULL,
+    IN p_total DECIMAL DEFAULT NULL,
+    IN p_estatus BOOLEAN DEFAULT NULL,
+    IN p_accion CHAR(1) DEFAULT NULL
+)
+LANGUAGE plpgsql AS $$
+BEGIN
+    IF p_accion = 'i' THEN
+        INSERT INTO tblPedido (idCliente, fecha, total, estatus)
+        VALUES (p_idCliente, p_fecha, p_total, p_estatus);
+    ELSIF p_accion = 'u' THEN
+        UPDATE tblPedido SET idCliente = p_idCliente, fecha = p_fecha, total = p_total, estatus = p_estatus WHERE idPedido = p_idPedido;
+    ELSIF p_accion = 'd' THEN
+        DELETE FROM tblPedido WHERE idPedido = p_idPedido;
+    END IF;
+EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'Error detectado en spMttoTblPedido: %', SQLERRM;
+END; $$;
+
+CREATE OR REPLACE PROCEDURE spMttoTblPedidoDetalle(
+    IN p_idPedidoDetalle INT DEFAULT NULL,
+    IN p_idPedido INT DEFAULT NULL,
+    IN p_idProducto INT DEFAULT NULL,
+    IN p_cantidad INT DEFAULT NULL,
+    IN p_total DECIMAL DEFAULT NULL,
+    IN p_accion CHAR(1) DEFAULT NULL
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_existencia INT;
+BEGIN
+    IF p_accion = 'i' THEN
+        -- 1. Validar si hay existencia suficiente
+        SELECT existencia INTO v_existencia FROM catProducto WHERE idProducto = p_idProducto;
+        
+        IF v_existencia < p_cantidad THEN
+            RAISE EXCEPTION 'cantidad insuficiente';
+        END IF;
+
+        -- 2. Insertar el detalle del pedido
+        INSERT INTO tblPedidoDetalle (idPedido, idProducto, cantidad, total)
+        VALUES (p_idPedido, p_idProducto, p_cantidad, p_total);
+
+        -- 3. Descontar del inventario
+        UPDATE catProducto SET existencia = existencia - p_cantidad WHERE idProducto = p_idProducto;
+
+    ELSIF p_accion = 'd' THEN
+        -- Al borrar un detalle, devolvemos la cantidad al inventario
+        UPDATE catProducto 
+        SET existencia = existencia + (SELECT cantidad FROM tblPedidoDetalle WHERE idPedidoDetalle = p_idPedidoDetalle)
+        WHERE idProducto = (SELECT idProducto FROM tblPedidoDetalle WHERE idPedidoDetalle = p_idPedidoDetalle);
+        
+        DELETE FROM tblPedidoDetalle WHERE idPedidoDetalle = p_idPedidoDetalle;
+    END IF;
+
+EXCEPTION WHEN OTHERS THEN
+    RAISE EXCEPTION 'Error detectado en spMttoTblPedidoDetalle: %', SQLERRM;
+END; $$;
+
+
+-- =============================================
+-- 3. LOGIN CON BLOQUEO (RAISE EXCEPTION)
+-- =============================================
+
+CREATE OR REPLACE PROCEDURE spLogin(
+    IN p_correo VARCHAR,
+    IN p_password VARCHAR
+)
+LANGUAGE plpgsql AS $$
+DECLARE
+    v_id INT;
+    v_pass_db VARCHAR(64);
+    v_bloqueado BOOLEAN;
+    v_conteo INT;
+    v_pass_input VARCHAR(64);
+BEGIN
+    v_pass_input := encode(digest(p_password, 'md5'), 'hex');
+
+    SELECT idCliente, password, intento, conteo_intentos 
+    INTO v_id, v_pass_db, v_bloqueado, v_conteo
+    FROM catCliente WHERE correo = p_correo;
+
+    IF v_id IS NULL THEN RAISE EXCEPTION 'USUARIO_INVALIDO'; END IF;
+    IF v_bloqueado THEN RAISE EXCEPTION 'USUARIO_BLOQUEADO'; END IF;
+
+    IF v_pass_db = v_pass_input THEN
+        UPDATE catCliente SET conteo_intentos = 0 WHERE idCliente = v_id;
+        COMMIT;
+        RAISE NOTICE 'Login exitoso';
+    ELSE
+        v_conteo := v_conteo + 1;
+        IF v_conteo >= 3 THEN
+            UPDATE catCliente SET intento = TRUE, conteo_intentos = v_conteo WHERE idCliente = v_id;
+            COMMIT;
+            RAISE EXCEPTION 'PASSWORD_INCORRECTO_BLOQUEADO';
+        ELSE
+            UPDATE catCliente SET conteo_intentos = v_conteo WHERE idCliente = v_id;
+            COMMIT;
+            RAISE EXCEPTION 'PASSWORD_INCORRECTO_INTENTO_%', v_conteo;
+        END IF;
+    END IF;
+END; $$;
+
+
+-- 1. Otorgar permisos sobre el esquema a nivel general
+GRANT ALL ON SCHEMA public TO "usrWebPedido";
+
+-- 2. Otorgar permisos sobre todas las tablas actuales (esto arregla el error de catcliente)
+GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO "usrWebPedido";
+
+-- 3. Otorgar permisos sobre todas las secuencias (necesario para los campos autoincrementales)
+GRANT ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public TO "usrWebPedido";
+
+-- 4. Otorgar permisos sobre funciones y procedimientos creados
+GRANT ALL PRIVILEGES ON ALL FUNCTIONS IN SCHEMA public TO "usrWebPedido";
+GRANT ALL PRIVILEGES ON ALL PROCEDURES IN SCHEMA public TO "usrWebPedido";
+
+-- OPCIONAL: Asegurar que las tablas que crees en el futuro tengan permisos automáticamente
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO "usrWebPedido";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO "usrWebPedido";
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON FUNCTIONS TO "usrWebPedido";
+
+
+-- Datos de prueba
+
+-- 1. Insertar Cliente: Maria
+CALL spMttoCatCliente(
+    NULL, 
+    'maria', 
+    'maria@gmail.com', 
+    'M4r142026#', 
+    false, 
+    false, 
+    'i'
+	
+);
+
+select * from catCliente
+
+
+-- 2. Insertar Cliente: Jose (Administrador)
+CALL spMttoCatCliente(
+    NULL, 
+    'jose', 
+    'jose@gmail.com', 
+    'J0s32026#', 
+    true, 
+    false, 
+    'i'
+);
+
+
+
+INSERT INTO catProducto (producto, descripcion, existencia, precio) VALUES
+('ACEITE_CANOLA_VALLE', 'ACEITE CANOLA VALLE', 45, 33.90),
+('AGUACATE_XT_KG', 'AGUACATE XT. KG', 12, 49.90),
+('ARROZ_VERDE_VALLE', 'ARROZ VERDE VALLE S', 100, 25.90),
+('ATUN_TUNY_AGUA', 'ATUN TUNY EN AGUA L', 60, 24.50),
+('BLANQUEADOR_CLORALE', 'BLANQUEADOR CLORALE', 30, 18.00),
+('CHILE_POLVO_TAJIN', 'CHILE POLVO TAJIN C', 25, 55.00),
+('COSTILLA_RES_PA', 'COSTILLA DE RES P/A', 15, 159.00),
+('CREMA_CORP_NIVEA', 'CREMA CORPORAL NIVE', 20, 110.00),
+('HUEVO_BLANCO_30', 'HUEVO BLANCO PAO 30', 40, 92.90),
+('JABON_ZOTE_BLANCO', 'JABON BARRA ZOTE BL', 80, 7.50),
+('MANTEQUILLA_GLORIA', 'MANTEQUILLA GLORIA', 50, 27.90),
+('PAN_BARRA_INTEGRAL', 'PAN BARRA INTEGRAL', 18, 59.00),
+('QUESO_LA_VILLITA', 'QUESO LA VILLITA OA', 22, 61.00),
+('SHAMPOO_RICITOS', 'SHAMPOO RICITOS ORO', 15, 95.90),
+('TARRO_CAFE_MIGUEL', 'TARRO CAFE SAN MIGU', 10, 49.00);
